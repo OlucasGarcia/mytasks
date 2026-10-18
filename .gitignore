@@ -1,0 +1,32 @@
+# Dependências
+node_modules/
+**/node_modules/
+
+# Variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Arquivos de build
+dist/
+build/
+.next/
+
+# Python
+__pycache__/
+.venv/
+venv/
+
+# PHP
+/vendor/
+
+# Logs
+*.log
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/
