@@ -5,6 +5,7 @@ import TaskColumn from '../../components/tasks/TaskColumn'
 import { useState } from 'react'
 import TaskForm from '../../components/tasks/TaskForm'
 import TaskFilters from '../../components/tasks/TaskFilters'
+import ConfirmModal from '../../components/common/ConfirmModal'
 
 const columns = [
     {
@@ -25,9 +26,14 @@ const columns = [
 ]
 
 function Tasks() {
+    const [taskToDelete, setTaskToDelete] = useState(null)
+    const [actionError, setActionError] = useState('')
+    const [deletingTaskId, setDeletingTaskId] = useState(null)
 
     const {
         tasks,
+        loading,
+        error,
         addTask,
         updateTask,
         deleteTask,
@@ -86,22 +92,59 @@ function Tasks() {
         setEditingTask(null)
     }
 
-    function handleSaveTask(taskData) {
+    async function handleSaveTask(taskData) {
         if (editingTask) {
-            updateTask(editingTask.id, taskData)
+            await updateTask(editingTask.id, taskData)
         } else {
-            addTask(taskData)
+            await addTask(taskData)
+        }
+
+        setActionError('')
+    }
+
+    function handleDelete(task) {
+        if (deletingTaskId !== null) return
+
+        setTaskToDelete(task)
+    }
+
+    async function handleConfirmDelete() {
+        if (!taskToDelete || deletingTaskId !== null) return
+
+        const taskId = taskToDelete.id
+
+        setDeletingTaskId(taskId)
+        setActionError('')
+
+        try {
+            await deleteTask(taskId)
+            setTaskToDelete(null)
+        } catch (error) {
+            setActionError(
+                error.message || 'Não foi possível excluir a tarefa.'
+            )
+        } finally {
+            setDeletingTaskId(null)
         }
     }
 
+    function handleCancelDelete() {
+        if (deletingTaskId !== null) return
 
-    function handleDelete(task) {
-        const confirmed = window.confirm(
-            `Tem certeza que deseja excluir a tarefa "${task.title}"?`
-        )
+        setTaskToDelete(null)
+    }
 
-        if (confirmed) {
-            deleteTask(task.id)
+    async function handleStatusChange(taskId, status) {
+        setActionError('')
+
+        try {
+            await updateTaskStatus(taskId, status)
+        } catch (error) {
+            setActionError(
+                error.message || 'Não foi possível atualizar o status.'
+            )
+
+            throw error
         }
     }
 
@@ -121,16 +164,28 @@ function Tasks() {
 
                 <button
                     type="button"
-                    className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+                    className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() => {
                         setEditingTask(null)
                         setIsFormOpen(true)
                     }}
+                    disabled={loading}
                 >
                     <Plus size={18} />
                     Nova tarefa
                 </button>
             </div>
+
+            {(actionError || error) && (
+                <div
+                    role="alert"
+                    className="mb-5 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3"
+                >
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                        {actionError || error}
+                    </p>
+                </div>
+            )}
 
             <TaskFilters
                 search={search}
@@ -143,21 +198,31 @@ function Tasks() {
                 onClear={clearFilters}
             />
 
-            <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
-                {columns.map((column) => (
-                    <TaskColumn
-                        key={column.status}
-                        title={column.title}
-                        color={column.color}
-                        tasks={filteredTasks.filter(
-                            (task) => task.status === column.status
-                        )}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                        onStatusChange={updateTaskStatus}
-                    />
-                ))}
-            </div>
+            {loading ? (
+                <div
+                    role="status"
+                    className="flex min-h-64 items-center justify-center gap-3 text-text-secondary"
+                >
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                    <span className="text-sm">Carregando tarefas...</span>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+                    {columns.map((column) => (
+                        <TaskColumn
+                            key={column.status}
+                            title={column.title}
+                            color={column.color}
+                            tasks={filteredTasks.filter(
+                                (task) => task.status === column.status
+                            )}
+                            onEdit={handleEdit}
+                            onDelete={handleDelete}
+                            onStatusChange={handleStatusChange}
+                        />
+                    ))}
+                </div>
+            )}
 
             {isFormOpen && (
                 <TaskForm
@@ -167,6 +232,22 @@ function Tasks() {
                     onSave={handleSaveTask}
                 />
             )}
+
+            <ConfirmModal
+                isOpen={taskToDelete !== null}
+                title="Excluir tarefa?"
+                message={
+                    taskToDelete
+                        ? `Tem certeza que deseja excluir a tarefa "${taskToDelete.title}"? Esta ação não poderá ser desfeita.`
+                        : ''
+                }
+                confirmLabel="Excluir tarefa"
+                cancelLabel="Cancelar"
+                variant="danger"
+                isLoading={deletingTaskId !== null}
+                onConfirm={handleConfirmDelete}
+                onCancel={handleCancelDelete}
+            />
 
         </section>
     )

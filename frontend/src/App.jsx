@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 
 import MainLayout from './layouts/MainLayout'
+import Register from './pages/Register/Register'
+import Login from './pages/Login/Login'
 import Dashboard from './pages/Dashboard/Dashboard'
 import Tasks from './pages/Tasks/Tasks'
 import Calendar from './pages/Calendar/Calendar'
@@ -12,6 +14,9 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+        <Route path="/login" element={<Login />} />
+        <Route path="/cadastro" element={<Register />} />
 
         <Route element={<MainLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />

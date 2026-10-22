@@ -13,6 +13,10 @@ const initialForm = {
 }
 
 function TaskForm({ onClose, onSave, task = null }) {
+
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [submitError, setSubmitError] = useState('')
+
     const [form, setForm] = useState(() =>
         task
             ? {
@@ -36,19 +40,35 @@ function TaskForm({ onClose, onSave, task = null }) {
         }))
     }
 
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault()
 
-        if (!form.title.trim()) return
+        if (isSubmitting) return
 
-        onSave({
-            ...form,
-            title: form.title.trim(),
-            description: form.description.trim(),
-            category: form.category.trim(),
-        })
+        if (!form.title.trim()) {
+            setSubmitError('O título da tarefa é obrigatório.')
+            return
+        }
 
-        onClose()
+        setIsSubmitting(true)
+        setSubmitError('')
+
+        try {
+            await onSave({
+                ...form,
+                title: form.title.trim(),
+                description: form.description.trim(),
+                category: form.category.trim(),
+            })
+
+            onClose()
+        } catch (error) {
+            setSubmitError(
+                error.message || 'Não foi possível salvar a tarefa. Tente novamente.'
+            )
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     return (
@@ -70,8 +90,9 @@ function TaskForm({ onClose, onSave, task = null }) {
                     <button
                         type="button"
                         onClick={onClose}
+                        disabled={isSubmitting}
                         aria-label="Fechar formulário"
-                        className="text-slate-500 hover:text-text-primary"
+                        className="text-slate-500 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <X size={22} />
                     </button>
@@ -187,20 +208,40 @@ function TaskForm({ onClose, onSave, task = null }) {
                         </div>
                     </div>
 
+                    {submitError && (
+                        <div
+                            role="alert"
+                            className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3"
+                        >
+                            <p className="text-sm text-red-600 dark:text-red-400">
+                                {submitError}
+                            </p>
+                        </div>
+                    )}
+
                     <div className="flex justify-end gap-3 border-t border-border pt-4">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="rounded-lg border border-border px-4 py-2.5 text-sm hover:bg-background"
+                            disabled={isSubmitting}
+                            className="rounded-lg border border-border px-4 py-2.5 text-sm hover:bg-background disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             Cancelar
                         </button>
 
                         <button
                             type="submit"
-                            className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-hover"
+                            disabled={isSubmitting}
+                            className="flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {task ? 'Salvar alterações' : 'Salvar tarefa'}
+                            {isSubmitting ? (
+                                <>
+                                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                    Salvando...
+                                </>
+                            ) : (
+                                task ? 'Salvar alterações' : 'Salvar tarefa'
+                            )}
                         </button>
                     </div>
                 </form>

@@ -1,4 +1,5 @@
 import { CalendarDays, Clock3, Pencil, Trash2 } from 'lucide-react'
+import { useState, useRef } from 'react'
 
 const priorityConfig = {
     high: {
@@ -16,12 +17,45 @@ const priorityConfig = {
 }
 
 function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
+
+    const [isProcessing, setIsProcessing] = useState(false)
+    const processingRef = useRef(false)
+
     const priority =
         priorityConfig[task.priority] ?? priorityConfig.low
 
     const formattedDate = task.date
         ? new Date(`${task.date}T12:00:00`).toLocaleDateString('pt-BR')
         : 'Sem data'
+
+    async function runAction(action) {
+        if (processingRef.current) return
+
+        processingRef.current = true
+        setIsProcessing(true)
+
+        try {
+            await action()
+        } catch (error) {
+            // O erro já é apresentado pelo componente Tasks.
+            console.error('Erro ao executar ação da tarefa:', error)
+        } finally {
+            processingRef.current = false
+            setIsProcessing(false)
+        }
+    }
+
+    function handleStatusChange(event) {
+        const newStatus = event.target.value
+
+        runAction(() => onStatusChange(task.id, newStatus))
+    }
+
+    function handleDelete() {
+        if (processingRef.current) return
+
+        onDelete(task)
+    }
 
     return (
         <article className="rounded-xl border border-border bg-surface p-4 shadow-sm transition-shadow hover:shadow-md">
@@ -41,19 +75,21 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
                     <button
                         type="button"
                         onClick={() => onEdit(task)}
+                        disabled={isProcessing}
                         aria-label={`Editar ${task.title}`}
                         title="Editar tarefa"
-                        className="rounded-lg p-1.5 text-text-secondary transition-colors hover:bg-background hover:text-primary"
+                        className="rounded-lg p-1.5 text-text-secondary transition-colors hover:bg-background hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <Pencil size={15} />
                     </button>
 
                     <button
                         type="button"
-                        onClick={() => onDelete(task)}
+                        onClick={handleDelete}
+                        disabled={isProcessing}
                         aria-label={`Excluir ${task.title}`}
                         title="Excluir tarefa"
-                        className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/15 dark:hover:text-red-400"
+                        className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/15 dark:hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <Trash2 size={15} />
                     </button>
@@ -80,16 +116,25 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
                 <select
                     id={`status-${task.id}`}
                     value={task.status}
-                    onChange={(event) =>
-                        onStatusChange(task.id, event.target.value)
-                    }
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-text-primary outline-none focus:border-primary"
+                    onChange={handleStatusChange}
+                    disabled={isProcessing}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-text-primary outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     <option value="pending">A fazer</option>
                     <option value="in_progress">Em andamento</option>
                     <option value="completed">Finalizada</option>
                 </select>
+                {isProcessing && (
+                    <div
+                        role="status"
+                        className="mt-2 flex items-center gap-2 text-xs text-text-secondary"
+                    >
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                        Processando tarefa...
+                    </div>
+                )}
             </div>
+
 
 
             <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3 text-xs text-text-secondary">
