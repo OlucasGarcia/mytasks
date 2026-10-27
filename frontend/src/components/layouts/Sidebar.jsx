@@ -10,6 +10,7 @@ import {
     SquareCheckBig,
     X,
 } from 'lucide-react'
+import { useAuth } from '../../contexts/useAuth'
 
 const menuItems = [
     {
@@ -41,11 +42,11 @@ const menuItems = [
 
 function Sidebar({ isMobile = false, onClose }) {
     const navigate = useNavigate()
+    const { logout } = useAuth()
 
-    function handleLogout() {
+    async function handleLogout() {
         onClose?.()
-
-        // Navegação temporária, até a autenticação ser implementada.
+        await logout()
         navigate('/login', { replace: true })
     }
     return (

@@ -3,12 +3,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
     ChevronDown,
-    UserRound,
     Settings,
     LogOut,
     Menu,
 } from 'lucide-react'
 import NotificationPanel from './NotificationPanel'
+import { useAuth } from '../../contexts/useAuth'
 
 
 function Header({ onMenuClick, isSidebarOpen }) {
@@ -17,6 +17,7 @@ function Header({ onMenuClick, isSidebarOpen }) {
     const [profileOpen, setProfileOpen] = useState(false)
     const navigate = useNavigate()
     const profileRef = useRef(null)
+    const { user, logout } = useAuth()
 
     useEffect(() => {
         if (!profileOpen) return
@@ -50,14 +51,18 @@ function Header({ onMenuClick, isSidebarOpen }) {
         navigate(path)
     }
 
-    function handleLogout() {
+    async function handleLogout() {
         setProfileOpen(false)
-
-        // Logout visual temporário.
-        // Quando a autenticação estiver implementada,
-        // também encerraremos a sessão do usuário aqui.
+        await logout()
         navigate('/login', { replace: true })
     }
+
+    const initials = user?.name
+        ?.split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join('')
+        .toLocaleUpperCase('pt-BR')
 
     return (
         <header className="flex min-h-20 items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:justify-end lg:gap-6 lg:px-8">
@@ -87,15 +92,15 @@ function Header({ onMenuClick, isSidebarOpen }) {
                         aria-controls="profile-menu"
                     >
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#172335] text-sm font-semibold text-primary">
-                            LG
+                            {initials}
                         </div>
 
                         <div className="hidden text-left sm:block">
                             <p className="text-xs font-semibold text-text-primary">
-                                Lucas Garcia
+                                {user?.name}
                             </p>
                             <p className="text-[11px] text-text-secondary">
-                                Meu Negócio
+                                {user?.email}
                             </p>
                         </div>
 
@@ -115,19 +120,6 @@ function Header({ onMenuClick, isSidebarOpen }) {
                             aria-label="Menu do usuário"
                             className="absolute right-0 top-14 z-50 w-52 rounded-xl border border-border bg-surface p-2 shadow-xl"
                         >
-                            {/* Perfil: funcionalidade futura */}
-                            <button
-                                type="button"
-                                role="menuitem"
-                                disabled
-                                title="Funcionalidade em desenvolvimento"
-                                className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-text-secondary opacity-50"
-                            >
-                                <UserRound size={17} />
-                                Meu perfil
-                            </button>
-
-                            {/* Configurações */}
                             <button
                                 type="button"
                                 role="menuitem"

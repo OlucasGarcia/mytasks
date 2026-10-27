@@ -2,7 +2,7 @@
 import { localTaskService } from './localTaskService'
 import { httpTaskService } from './httpTaskService'
 
-const dataSource = import.meta.env.VITE_DATA_SOURCE || 'local'
+const dataSource = import.meta.env.VITE_DATA_SOURCE || 'api'
 
 export const taskService =
     dataSource === 'api'
