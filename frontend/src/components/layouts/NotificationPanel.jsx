@@ -2,55 +2,24 @@
 import { useEffect, useRef, useState } from 'react'
 import {
     Bell,
-    CheckCheck,
     CircleCheck,
     ClipboardList,
-    Info,
     X,
 } from 'lucide-react'
-import { mockNotifications } from '../../data/mockNotifications'
-
-const STORAGE_KEY = 'mytasks-notification-items'
-
-function loadNotifications() {
-    try {
-        const stored = localStorage.getItem(STORAGE_KEY)
-
-        if (stored !== null) {
-            const parsed = JSON.parse(stored)
-
-            if (Array.isArray(parsed)) {
-                return parsed
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao carregar notificações:', error)
-    }
-
-    return mockNotifications
-}
 
 const notificationIcons = {
-    info: Info,
     task: ClipboardList,
     success: CircleCheck,
 }
 
 function NotificationPanel() {
-    const [notifications, setNotifications] = useState(loadNotifications)
+    const notifications = []
     const [isOpen, setIsOpen] = useState(false)
     const containerRef = useRef(null)
 
     const unreadCount = notifications.filter(
         (notification) => !notification.read
     ).length
-
-    useEffect(() => {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(notifications)
-        )
-    }, [notifications])
 
     useEffect(() => {
         if (!isOpen) return
@@ -78,29 +47,6 @@ function NotificationPanel() {
             document.removeEventListener('keydown', handleEscape)
         }
     }, [isOpen])
-
-    function markAsRead(notificationId) {
-        setNotifications((previous) =>
-            previous.map((notification) =>
-                notification.id === notificationId
-                    ? { ...notification, read: true }
-                    : notification
-            )
-        )
-    }
-
-    function markAllAsRead() {
-        setNotifications((previous) =>
-            previous.map((notification) => ({
-                ...notification,
-                read: true,
-            }))
-        )
-    }
-
-    function clearNotifications() {
-        setNotifications([])
-    }
 
     return (
         <div ref={containerRef} className="relative">
@@ -176,7 +122,7 @@ function NotificationPanel() {
                                         <button
                                             key={notification.id}
                                             type="button"
-                                            onClick={() => markAsRead(notification.id)}
+                                            onClick={() => setIsOpen(false)}
                                             className={`flex w-full gap-3 border-b border-border px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-background ${notification.read
                                                     ? ''
                                                     : 'bg-primary/5'
@@ -220,25 +166,6 @@ function NotificationPanel() {
                                 })}
                             </div>
 
-                            <div className="flex items-center justify-between gap-3 border-t border-border p-3">
-                                <button
-                                    type="button"
-                                    onClick={markAllAsRead}
-                                    disabled={unreadCount === 0}
-                                    className="flex items-center gap-2 text-xs font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                    <CheckCheck size={16} />
-                                    Marcar todas como lidas
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={clearNotifications}
-                                    className="text-xs text-text-secondary hover:text-red-500"
-                                >
-                                    Limpar
-                                </button>
-                            </div>
                         </>
                     )}
                 </div>

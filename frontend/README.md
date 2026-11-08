@@ -1,5 +1,23 @@
 # MyTasks Frontend
 
-Frontend React com Vite. A API e o fluxo local de execução estão documentados no [README do projeto](../README.md); os endpoints estão descritos no [README do backend](../backend/README.md).
+# MyTasks Frontend
 
-Por padrão, o frontend usa a API em `http://localhost:8000/api`. Copie `.env.example` para `.env` se quiser personalizar `VITE_API_URL` ou `VITE_DATA_SOURCE`. A fonte de dados padrão é `api`.
+Frontend React com Vite e Supabase Auth/Database.
+
+## Configuração
+
+Copie `.env.example` para `.env` e preencha `VITE_SUPABASE_ANON_KEY` com a chave pública (publishable/anon) do projeto Supabase. Não use uma chave `service_role` no frontend.
+
+```sh
+npm install
+npm run dev
+```
+
+O cliente Supabase utiliza sessão persistente, renovação automática e detecção de sessão a partir da URL. A API Node antiga não é usada pelo frontend.
+
+## Verificações
+
+```sh
+npm run lint
+npm run build
+```

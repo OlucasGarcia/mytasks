@@ -3,95 +3,156 @@ import {
     useEffect,
     useState,
 } from 'react'
-import { AUTH_TOKEN_KEY } from '../services/api'
+import { getSupabaseClient, supabase } from '../lib/supabase'
 import { authService } from '../services/authService'
 import { AuthContext } from './auth-context'
 
+function mapUser(authUser) {
+    if (!authUser) return null
+
+    return {
+        ...authUser,
+        name:
+            authUser.user_metadata?.full_name ??
+            authUser.user_metadata?.name ??
+            authUser.email?.split('@')[0] ??
+            'Usuário',
+        email: authUser.email ?? '',
+    }
+}
+
 export function AuthProvider({ children }) {
+    const [session, setSession] = useState(null)
     const [user, setUser] = useState(null)
-    const [isReady, setIsReady] = useState(
-        () => !localStorage.getItem(AUTH_TOKEN_KEY)
+    const [isReady, setIsReady] = useState(!supabase)
+    const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
+    const [error, setError] = useState(
+        supabase
+            ? ''
+            : 'Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para conectar ao Supabase.'
     )
-    const [error, setError] = useState('')
 
     const clearError = useCallback(() => setError(''), [])
 
     useEffect(() => {
+        localStorage.removeItem('mytasks-token')
+
+        if (!supabase) return undefined
+
         let isMounted = true
-        const token = localStorage.getItem(AUTH_TOKEN_KEY)
-
-        if (!token) {
-            return () => {
-                isMounted = false
-            }
-        }
-
-        authService.getCurrentUser()
-            .then(({ user: currentUser }) => {
-                if (isMounted) {
-                    setUser(currentUser)
-                }
-            })
-            .catch((requestError) => {
+        const client = getSupabaseClient()
+        const { data: { subscription } } = client.auth.onAuthStateChange(
+            (event, nextSession) => {
                 if (!isMounted) return
 
-                if (requestError.status === 401) {
-                    localStorage.removeItem(AUTH_TOKEN_KEY)
+                setSession(nextSession)
+                setUser(mapUser(nextSession?.user))
+                setIsReady(true)
+
+                if (event === 'PASSWORD_RECOVERY') {
+                    setIsPasswordRecovery(true)
+                } else if (event === 'SIGNED_OUT') {
+                    setIsPasswordRecovery(false)
+                }
+            }
+        )
+
+        client.auth.getSession()
+            .then(({ data, error: sessionError }) => {
+                if (!isMounted) return
+
+                if (sessionError) {
+                    setError(sessionError.message)
                 } else {
-                    setError(requestError.message)
+                    setSession(data.session)
+                    setUser(mapUser(data.session?.user))
                 }
+
+                setIsReady(true)
             })
-            .finally(() => {
-                if (isMounted) {
-                    setIsReady(true)
-                }
+            .catch((sessionError) => {
+                if (!isMounted) return
+                setError(sessionError.message)
+                setIsReady(true)
             })
 
         return () => {
             isMounted = false
+            subscription.unsubscribe()
         }
     }, [])
 
-    const authenticate = useCallback(async (request) => {
+    const runAuthAction = useCallback(async (action) => {
         setError('')
 
         try {
-            const result = await request()
-            localStorage.setItem(AUTH_TOKEN_KEY, result.token)
-            setUser(result.user)
-            return result.user
+            return await action()
         } catch (requestError) {
             setError(requestError.message)
             throw requestError
         }
     }, [])
 
-    const login = useCallback(
-        (credentials) => authenticate(() => authService.login(credentials)),
-        [authenticate]
+    const login = useCallback(async (credentials) => {
+        const result = await runAuthAction(
+            () => authService.login(credentials)
+        )
+        setSession(result.session)
+        setUser(mapUser(result.user))
+        return result
+    }, [runAuthAction])
+
+    const register = useCallback(async (userData) => {
+        const result = await runAuthAction(
+            () => authService.register(userData)
+        )
+
+        if (result.session) {
+            setSession(result.session)
+            setUser(mapUser(result.user))
+        }
+
+        return result
+    }, [runAuthAction])
+
+    const resetPassword = useCallback(
+        (email) => runAuthAction(() => authService.resetPassword(email)),
+        [runAuthAction]
     )
 
-    const register = useCallback(
-        (userData) => authenticate(() => authService.register(userData)),
-        [authenticate]
+    const updatePassword = useCallback(
+        async (password) => {
+            const result = await runAuthAction(
+                () => authService.updatePassword(password)
+            )
+            setIsPasswordRecovery(false)
+            return result
+        },
+        [runAuthAction]
     )
 
     const logout = useCallback(async () => {
-        setError('')
-
-        try {
-            await authService.logout()
-        } catch (requestError) {
-            setError(requestError.message)
-        } finally {
-            localStorage.removeItem(AUTH_TOKEN_KEY)
-            setUser(null)
-        }
-    }, [])
+        await runAuthAction(() => authService.logout())
+        setSession(null)
+        setUser(null)
+        setIsPasswordRecovery(false)
+    }, [runAuthAction])
 
     return (
         <AuthContext.Provider
-            value={{ user, isReady, error, clearError, login, register, logout }}
+            value={{
+                user,
+                session,
+                isReady,
+                isPasswordRecovery,
+                error,
+                clearError,
+                login,
+                register,
+                resetPassword,
+                updatePassword,
+                logout,
+            }}
         >
             {children}
         </AuthContext.Provider>

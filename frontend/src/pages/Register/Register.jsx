@@ -21,6 +21,7 @@ function Register() {
     const [showPassword, setShowPassword] = useState(false)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [formError, setFormError] = useState('')
+    const [successMessage, setSuccessMessage] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const { register, error: authError, clearError } = useAuth()
     const navigate = useNavigate()
@@ -34,6 +35,7 @@ function Register() {
         }))
 
         setFormError('')
+        setSuccessMessage('')
         clearError()
     }
 
@@ -67,14 +69,27 @@ function Register() {
 
         setIsSubmitting(true)
         setFormError('')
+        setSuccessMessage('')
 
         try {
-            await register({
+            const result = await register({
                 name: formData.name.trim(),
                 email: formData.email.trim(),
                 password: formData.password,
             })
-            navigate('/dashboard', { replace: true })
+
+            if (result.needsEmailConfirmation) {
+                setSuccessMessage(
+                    'Conta criada. Verifique seu e-mail e confirme o cadastro antes de entrar.'
+                )
+                setFormData((previous) => ({
+                    ...previous,
+                    password: '',
+                    confirmPassword: '',
+                }))
+            } else {
+                navigate('/dashboard', { replace: true })
+            }
         } catch (requestError) {
             setFormError(requestError.message)
         } finally {
@@ -251,6 +266,14 @@ function Register() {
                                 className="text-sm text-amber-600 dark:text-amber-400"
                             >
                                 {formError || authError}
+                            </p>
+                        )}
+                        {successMessage && (
+                            <p
+                                role="status"
+                                className="text-sm text-emerald-600 dark:text-emerald-400"
+                            >
+                                {successMessage}
                             </p>
                         )}
 
