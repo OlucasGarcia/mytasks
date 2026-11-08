@@ -1,6 +1,8 @@
 # Dependências
 node_modules/
 **/node_modules/
+/backend/data.json
+/backend/data.json.*.tmp
 
 # Variáveis de ambiente
 .env

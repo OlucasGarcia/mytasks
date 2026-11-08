@@ -1,17 +1,12 @@
 
 import { useEffect, useState } from 'react'
-import { Outlet, useLocation } from 'react-router'
+import { Outlet } from 'react-router'
 import Sidebar from '../components/layouts/Sidebar'
 import Header from '../components/layouts/Header'
+import { TasksProvider } from '../contexts/TasksContext'
 
 function MainLayout() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-    const location = useLocation()
-
-    // Fecha o menu ao navegar para outra página.
-    useEffect(() => {
-        setIsSidebarOpen(false)
-    }, [location.pathname])
 
     // Fecha com Escape e bloqueia a rolagem do fundo.
     useEffect(() => {
@@ -36,6 +31,7 @@ function MainLayout() {
     }, [isSidebarOpen])
 
     return (
+        <TasksProvider>
         <div className="flex min-h-screen bg-background">
             {/* Sidebar fixo no desktop */}
             <div className="sticky top-0 hidden h-screen shrink-0 self-start lg:block">
@@ -77,6 +73,7 @@ function MainLayout() {
                 </main>
             </div>
         </div>
+        </TasksProvider>
     )
 }
 

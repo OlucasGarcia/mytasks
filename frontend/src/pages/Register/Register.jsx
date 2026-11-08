@@ -1,6 +1,6 @@
 
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import {
     UserRound,
     Mail,
@@ -8,6 +8,7 @@ import {
     Eye,
     EyeOff,
 } from 'lucide-react'
+import { useAuth } from '../../contexts/useAuth'
 
 function Register() {
     const [formData, setFormData] = useState({
@@ -19,7 +20,10 @@ function Register() {
 
     const [showPassword, setShowPassword] = useState(false)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-    const [error, setError] = useState('')
+    const [formError, setFormError] = useState('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const { register, error: authError, clearError } = useAuth()
+    const navigate = useNavigate()
 
     function handleChange(event) {
         const { name, value } = event.target
@@ -29,40 +33,53 @@ function Register() {
             [name]: value,
         }))
 
-        setError('')
+        setFormError('')
+        clearError()
     }
 
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault()
 
         if (Object.values(formData).some((value) => !value.trim())) {
-            setError('Preencha todos os campos.')
+            setFormError('Preencha todos os campos.')
             return
         }
 
         if (formData.name.trim().length < 3) {
-            setError('O nome deve ter pelo menos 3 caracteres.')
+            setFormError('O nome deve ter pelo menos 3 caracteres.')
             return
         }
 
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-            setError('Digite um e-mail válido.')
+            setFormError('Digite um e-mail válido.')
             return
         }
 
         if (formData.password.length < 8) {
-            setError('A senha deve ter pelo menos 8 caracteres.')
+            setFormError('A senha deve ter pelo menos 8 caracteres.')
             return
         }
 
         if (formData.password !== formData.confirmPassword) {
-            setError('As senhas não correspondem.')
+            setFormError('As senhas não correspondem.')
             return
         }
 
-        setError(
-            'O cadastro estará disponível após a integração com o servidor.'
-        )
+        setIsSubmitting(true)
+        setFormError('')
+
+        try {
+            await register({
+                name: formData.name.trim(),
+                email: formData.email.trim(),
+                password: formData.password,
+            })
+            navigate('/dashboard', { replace: true })
+        } catch (requestError) {
+            setFormError(requestError.message)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     return (
@@ -228,20 +245,21 @@ function Register() {
                             </div>
                         </div>
 
-                        {error && (
+                        {(formError || authError) && (
                             <p
                                 role="alert"
                                 className="text-sm text-amber-600 dark:text-amber-400"
                             >
-                                {error}
+                                {formError || authError}
                             </p>
                         )}
 
                         <button
                             type="submit"
-                            className="w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+                            disabled={isSubmitting}
+                            className="w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            Criar conta
+                            {isSubmitting ? 'Criando conta...' : 'Criar conta'}
                         </button>
                     </form>
 

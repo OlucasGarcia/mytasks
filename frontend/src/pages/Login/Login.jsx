@@ -1,7 +1,8 @@
 
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react'
+import { useAuth } from '../../contexts/useAuth'
 
 function Login() {
     const [formData, setFormData] = useState({
@@ -10,7 +11,10 @@ function Login() {
     })
 
     const [showPassword, setShowPassword] = useState(false)
-    const [error, setError] = useState('')
+    const [formError, setFormError] = useState('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const { login, error: authError, clearError } = useAuth()
+    const navigate = useNavigate()
 
     function handleChange(event) {
         const { name, value } = event.target
@@ -20,25 +24,37 @@ function Login() {
             [name]: value,
         }))
 
-        setError('')
+        setFormError('')
+        clearError()
     }
 
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault()
 
         if (!formData.email.trim() || !formData.password) {
-            setError('Preencha todos os campos.')
+            setFormError('Preencha todos os campos.')
             return
         }
 
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-            setError('Digite um e-mail válido.')
+            setFormError('Digite um e-mail válido.')
             return
         }
 
-        setError(
-            'O login estará disponível após a integração com o servidor.'
-        )
+        setIsSubmitting(true)
+        setFormError('')
+
+        try {
+            await login({
+                email: formData.email.trim(),
+                password: formData.password,
+            })
+            navigate('/dashboard', { replace: true })
+        } catch (requestError) {
+            setFormError(requestError.message)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     return (
@@ -135,20 +151,21 @@ function Login() {
                             </div>
                         </div>
 
-                        {error && (
+                        {(formError || authError) && (
                             <p
                                 role="alert"
                                 className="text-sm text-amber-600 dark:text-amber-400"
                             >
-                                {error}
+                                {formError || authError}
                             </p>
                         )}
 
                         <button
                             type="submit"
-                            className="w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+                            disabled={isSubmitting}
+                            className="w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            Entrar
+                            {isSubmitting ? 'Entrando...' : 'Entrar'}
                         </button>
                     </form>
 
