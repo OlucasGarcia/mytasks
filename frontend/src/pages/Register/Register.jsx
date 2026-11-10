@@ -22,6 +22,7 @@ function Register() {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [formError, setFormError] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [confirmationSent, setConfirmationSent] = useState(false)
     const { register, error: authError, clearError } = useAuth()
     const navigate = useNavigate()
 
@@ -69,11 +70,17 @@ function Register() {
         setFormError('')
 
         try {
-            await register({
+            const result = await register({
                 name: formData.name.trim(),
                 email: formData.email.trim(),
                 password: formData.password,
             })
+
+            if (result.needsEmailConfirmation) {
+                setConfirmationSent(true)
+                return
+            }
+
             navigate('/dashboard', { replace: true })
         } catch (requestError) {
             setFormError(requestError.message)
@@ -100,15 +107,34 @@ function Register() {
                 </div>
 
                 <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm sm:p-8">
-                    <h2 className="text-xl font-semibold text-text-primary">
-                        Crie sua conta
-                    </h2>
+                    {confirmationSent ? (
+                        <div role="status" className="mt-2 space-y-4">
+                            <h2 className="text-xl font-semibold text-text-primary">
+                                Confirme seu e-mail
+                            </h2>
+                            <p className="text-sm text-text-secondary">
+                                Se o endereço puder ser cadastrado, enviaremos um link para
+                                confirmar a conta. Abra o link no mesmo navegador para concluir
+                                o cadastro.
+                            </p>
+                            <Link
+                                to="/login"
+                                className="inline-block font-semibold text-primary hover:underline"
+                            >
+                                Ir para entrar
+                            </Link>
+                        </div>
+                    ) : (
+                        <>
+                            <h2 className="text-xl font-semibold text-text-primary">
+                                Crie sua conta
+                            </h2>
 
-                    <p className="mt-1 text-sm text-text-secondary">
-                        Preencha os dados abaixo para começar.
-                    </p>
+                            <p className="mt-1 text-sm text-text-secondary">
+                                Preencha os dados abaixo para começar.
+                            </p>
 
-                    <form onSubmit={handleSubmit} noValidate className="mt-7 space-y-5">
+                            <form onSubmit={handleSubmit} noValidate className="mt-7 space-y-5">
                         <div>
                             <label
                                 htmlFor="register-name"
@@ -261,7 +287,9 @@ function Register() {
                         >
                             {isSubmitting ? 'Criando conta...' : 'Criar conta'}
                         </button>
-                    </form>
+                            </form>
+                        </>
+                    )}
 
                     <p className="mt-6 text-center text-sm text-text-secondary">
                         Já possui uma conta?{' '}

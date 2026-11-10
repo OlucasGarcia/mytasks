@@ -1,6 +1,7 @@
 
 import { useState } from 'react'
 import { Eye, EyeOff, LockKeyhole } from 'lucide-react'
+import { authService } from '../../services/authService'
 
 const initialForm = {
     currentPassword: '',
@@ -12,6 +13,8 @@ function SecuritySettings() {
     const [formData, setFormData] = useState(initialForm)
     const [showPasswords, setShowPasswords] = useState(false)
     const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
 
     function handleChange(event) {
         const { name, value } = event.target
@@ -22,9 +25,10 @@ function SecuritySettings() {
         }))
 
         setError('')
+        setSuccess('')
     }
 
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault()
 
         if (
@@ -51,9 +55,17 @@ function SecuritySettings() {
             return
         }
 
-        setError(
-            'A alteração de senha estará disponível após a integração com o servidor.'
-        )
+        setIsSubmitting(true)
+
+        try {
+            await authService.updatePassword(formData)
+            setFormData(initialForm)
+            setSuccess('Sua senha foi atualizada com sucesso.')
+        } catch (requestError) {
+            setError(requestError.message)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     const fields = [
@@ -135,18 +147,20 @@ function SecuritySettings() {
                         {error}
                     </p>
                 )}
+                {success && (
+                    <p role="status" className="text-sm text-green-700 dark:text-green-400">
+                        {success}
+                    </p>
+                )}
 
                 <div className="flex flex-wrap items-center gap-4">
                     <button
                         type="submit"
-                        className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+                        disabled={isSubmitting}
+                        className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                        Alterar senha
+                        {isSubmitting ? 'Atualizando...' : 'Alterar senha'}
                     </button>
-
-                    <p className="text-xs text-text-secondary">
-                        Funcionalidade aguardando integração com o back-end.
-                    </p>
                 </div>
             </form>
         </section>

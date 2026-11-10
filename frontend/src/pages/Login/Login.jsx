@@ -169,6 +169,12 @@ function Login() {
                         </button>
                     </form>
 
+                    <p className="mt-4 text-right text-sm">
+                        <Link to="/recuperar-senha" className="font-semibold text-primary hover:underline">
+                            Esqueceu sua senha?
+                        </Link>
+                    </p>
+
                     <p className="mt-6 text-center text-sm text-text-secondary">
                         Ainda não possui uma conta?{' '}
                         <Link

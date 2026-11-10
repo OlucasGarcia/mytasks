@@ -1,6 +1,6 @@
 
 import { CalendarDays, Clock3 } from 'lucide-react'
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
 
 const priorityConfig = {
     high: {

@@ -1,6 +1,6 @@
 
 import { Plus } from 'lucide-react'
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
 import TaskColumn from '../../components/tasks/TaskColumn'
 import { useState } from 'react'
 import TaskForm from '../../components/tasks/TaskForm'
