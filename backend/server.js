@@ -1,17 +1,13 @@
-import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from 'node:crypto'
+import { createClient } from '@supabase/supabase-js'
 import { createServer as createHttpServer } from 'node:http'
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { promisify } from 'node:util'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-const scryptAsync = promisify(scrypt)
-const BACKEND_DIRECTORY = dirname(fileURLToPath(import.meta.url))
-const DEFAULT_DATA_FILE = resolve(BACKEND_DIRECTORY, 'data.json')
-const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_BODY_BYTES = 1024 * 1024
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'completed'])
 const TASK_PRIORITIES = new Set(['low', 'medium', 'high'])
+const LOCAL_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 class HttpError extends Error {
     constructor(status, message) {
@@ -20,27 +16,94 @@ class HttpError extends Error {
     }
 }
 
-function emptyStore() {
-    return { users: [], tasks: [], sessions: [] }
-}
-
-function hashToken(token) {
-    return createHash('sha256').update(token).digest('hex')
-}
-
-function publicUser(user) {
-    return { id: user.id, name: user.name, email: user.email }
-}
-
 function getAllowedOrigins() {
-    const localOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']
     const configuredOrigins = process.env.CORS_ORIGIN || ''
     const origins = configuredOrigins
         .split(',')
         .map((origin) => origin.trim())
         .filter(Boolean)
 
-    return [...new Set([...localOrigins, ...origins])]
+    if (origins.includes('*')) {
+        throw new HttpError(503, 'CORS_ORIGIN não pode conter wildcard.')
+    }
+
+    for (const origin of origins) {
+        let parsed
+        try {
+            parsed = new URL(origin)
+        } catch {
+            throw new HttpError(503, 'CORS_ORIGIN contém uma origem inválida.')
+        }
+
+        if (
+            parsed.origin !== origin ||
+            (parsed.protocol !== 'https:' && !LOCAL_ORIGINS.includes(origin))
+        ) {
+            throw new HttpError(503, 'CORS_ORIGIN deve conter origens HTTPS válidas.')
+        }
+    }
+
+    return [...new Set([...LOCAL_ORIGINS, ...origins])]
+}
+
+function getFrontendUrl() {
+    const configuredUrl = process.env.FRONTEND_URL
+
+    if (!configuredUrl && process.env.NODE_ENV === 'production') {
+        throw new HttpError(503, 'A origem do frontend não está configurada.')
+    }
+
+    const frontendUrl = configuredUrl || LOCAL_ORIGINS[0]
+    let parsed
+
+    try {
+        parsed = new URL(frontendUrl)
+    } catch {
+        throw new HttpError(503, 'A origem do frontend não está configurada corretamente.')
+    }
+
+    if (
+        parsed.origin !== frontendUrl.replace(/\/$/, '') ||
+        (parsed.protocol !== 'https:' && !LOCAL_ORIGINS.includes(parsed.origin))
+    ) {
+        throw new HttpError(503, 'A origem do frontend não está configurada corretamente.')
+    }
+
+    if (!getAllowedOrigins().includes(parsed.origin)) {
+        throw new HttpError(503, 'FRONTEND_URL precisa estar incluída em CORS_ORIGIN.')
+    }
+
+    return parsed.origin
+}
+
+function getSupabaseConfig() {
+    const url = process.env.SUPABASE_URL
+    const anonKey = process.env.SUPABASE_ANON_KEY
+
+    if (!url || !anonKey) {
+        throw new HttpError(503, 'A conexão com o serviço de dados não está configurada.')
+    }
+
+    let parsedUrl
+
+    try {
+        parsedUrl = new URL(url)
+    } catch {
+        throw new HttpError(503, 'A URL do serviço de dados não está configurada corretamente.')
+    }
+
+    if (
+        (parsedUrl.protocol !== 'https:' && parsedUrl.hostname !== 'localhost') ||
+        parsedUrl.username ||
+        parsedUrl.password ||
+        parsedUrl.pathname !== '/' ||
+        parsedUrl.search ||
+        parsedUrl.hash
+    ) {
+        throw new HttpError(503, 'A URL do serviço de dados não está configurada corretamente.')
+    }
+
+    return { url: parsedUrl.origin, anonKey }
 }
 
 function sendJson(response, status, value, origin) {
@@ -59,7 +122,37 @@ function sendJson(response, status, value, origin) {
     response.end(body)
 }
 
+function sendNoContent(response, origin) {
+    response.writeHead(204, {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true',
+        'Cache-Control': 'no-store',
+        'Vary': 'Origin',
+    })
+    response.end()
+}
+
 async function readJsonBody(request) {
+    if (request.body !== undefined && request.body !== null) {
+        if (typeof request.body === 'string' || Buffer.isBuffer(request.body)) {
+            try {
+                return parseJsonBody(request.body.toString())
+            } catch (error) {
+                throw new HttpError(400, error.message)
+            }
+        }
+
+        if (
+            typeof request.body !== 'object' ||
+            Array.isArray(request.body) ||
+            Buffer.isBuffer(request.body)
+        ) {
+            throw new HttpError(400, 'O corpo JSON precisa ser um objeto.')
+        }
+
+        return request.body
+    }
+
     const chunks = []
     let size = 0
 
@@ -82,7 +175,15 @@ async function readJsonBody(request) {
     }
 
     try {
-        const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        return parseJsonBody(Buffer.concat(chunks).toString('utf8'))
+    } catch (error) {
+        throw new HttpError(400, error.message)
+    }
+}
+
+function parseJsonBody(value) {
+    try {
+        const parsed = JSON.parse(value)
 
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
             throw new Error('O corpo JSON precisa ser um objeto.')
@@ -91,10 +192,10 @@ async function readJsonBody(request) {
         return parsed
     } catch (error) {
         if (error instanceof SyntaxError) {
-            throw new HttpError(400, 'O corpo da requisição contém JSON inválido.')
+            throw new Error('O corpo da requisição contém JSON inválido.')
         }
 
-        throw new HttpError(400, error.message)
+        throw error
     }
 }
 
@@ -147,7 +248,7 @@ function validateTask(input, existing = {}) {
 
     if ('date' in input || !existing.id) {
         const date = input.date ?? ''
-        const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
+        const parsedDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
             ? new Date(`${date}T00:00:00.000Z`)
             : null
 
@@ -200,54 +301,69 @@ function validateCredentials(input, isRegistration) {
     return { email, name, password }
 }
 
-function isValidPassword(password, storedHash, salt) {
-    const actualHash = Buffer.from(storedHash, 'hex')
-    return scryptAsync(password, salt, actualHash.length).then((derivedHash) =>
-        timingSafeEqual(actualHash, derivedHash)
-    )
+function publicUser(user) {
+    return {
+        id: user.id,
+        name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || '',
+        email: user.email || '',
+    }
 }
 
-export function createServer({ dataFile = process.env.DATA_FILE || DEFAULT_DATA_FILE } = {}) {
-    const resolvedDataFile = resolve(dataFile)
-    let mutationQueue = Promise.resolve()
-
-    async function readStore() {
-        try {
-            await access(resolvedDataFile)
-        } catch (error) {
-            if (error.code === 'ENOENT') {
-                return emptyStore()
-            }
-
-            throw error
-        }
-
-        const data = JSON.parse(await readFile(resolvedDataFile, 'utf8'))
-
-        if (!data || !Array.isArray(data.users) || !Array.isArray(data.tasks) || !Array.isArray(data.sessions)) {
-            throw new Error('O arquivo de dados do backend está corrompido.')
-        }
-
-        return data
+function sessionResponse(session, user) {
+    return {
+        token: session.access_token,
+        refreshToken: session.refresh_token,
+        expiresAt: session.expires_at || Math.floor(Date.now() / 1000) + session.expires_in,
+        user: publicUser(user),
     }
+}
 
-    async function writeStore(store) {
-        await mkdir(dirname(resolvedDataFile), { recursive: true })
-        const temporaryFile = `${resolvedDataFile}.${randomUUID()}.tmp`
-        await writeFile(temporaryFile, JSON.stringify(store, null, 2), { mode: 0o600 })
-        await rename(temporaryFile, resolvedDataFile)
+function mapTask(row) {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        title: row.title,
+        description: row.description ?? '',
+        category: row.category ?? '',
+        priority: row.priority,
+        status: row.status,
+        date: row.date ?? '',
+        time: row.time?.slice(0, 5) ?? '',
+        completedAt: row.completed_at ?? null,
+        createdAt: row.created_at ?? null,
+        updatedAt: row.updated_at ?? null,
     }
+}
 
-    function mutateStore(mutator) {
-        const result = mutationQueue.then(async () => {
-            const store = await readStore()
-            const value = await mutator(store)
-            await writeStore(store)
-            return value
+function databaseTask(task) {
+    return {
+        title: task.title,
+        description: task.description,
+        category: task.category,
+        priority: task.priority,
+        status: task.status,
+        date: task.date || null,
+        time: task.time || null,
+    }
+}
+
+export function createServer({
+    clientFactory = createClient,
+    fetchImpl = globalThis.fetch,
+} = {}) {
+    function createSupabaseClient(accessToken) {
+        const { url, anonKey } = getSupabaseConfig()
+
+        return clientFactory(url, anonKey, {
+            auth: {
+                autoRefreshToken: false,
+                detectSessionInUrl: false,
+                persistSession: false,
+            },
+            ...(accessToken
+                ? { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
+                : {}),
         })
-
-        mutationQueue = result.then(() => undefined, () => undefined)
-        return result
     }
 
     async function requireUser(request) {
@@ -260,47 +376,43 @@ export function createServer({ dataFile = process.env.DATA_FILE || DEFAULT_DATA_
             throw new HttpError(401, 'Faça login para continuar.')
         }
 
-        const store = await readStore()
-        const session = store.sessions.find((item) => item.tokenHash === hashToken(token))
+        const client = createSupabaseClient(token)
+        const { data, error } = await client.auth.getUser(token)
 
-        if (!session || session.expiresAt <= Date.now()) {
+        if (error || !data.user) {
             throw new HttpError(401, 'Sua sessão expirou. Entre novamente.')
         }
 
-        const user = store.users.find((item) => item.id === session.userId)
-
-        if (!user) {
-            throw new HttpError(401, 'Sua sessão não é válida. Entre novamente.')
-        }
-
-        return { store, user, session }
+        return { client, token, user: data.user }
     }
 
     async function handle(request, response) {
-        const requestOrigin = request.headers.origin
-        const allowedOrigins = getAllowedOrigins()
-        const origin = allowedOrigins.includes(requestOrigin)
-            ? requestOrigin
-            : allowedOrigins[0]
-
-        if (requestOrigin && !allowedOrigins.includes(requestOrigin)) {
-            sendJson(response, 403, { error: { message: 'Origem não permitida.' } }, origin)
-            return
-        }
-
-        if (request.method === 'OPTIONS') {
-            response.writeHead(204, {
-                'Access-Control-Allow-Origin': origin,
-                'Access-Control-Allow-Credentials': 'true',
-                'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                'Vary': 'Origin',
-            })
-            response.end()
-            return
-        }
+        let origin = LOCAL_ORIGINS[0]
 
         try {
+            const allowedOrigins = getAllowedOrigins()
+            const requestOrigin = request.headers.origin
+            origin = allowedOrigins.includes(requestOrigin)
+                ? requestOrigin
+                : allowedOrigins[0]
+
+            if (requestOrigin && !allowedOrigins.includes(requestOrigin)) {
+                sendJson(response, 403, { error: { message: 'Origem não permitida.' } }, origin)
+                return
+            }
+
+            if (request.method === 'OPTIONS') {
+                response.writeHead(204, {
+                    'Access-Control-Allow-Origin': origin,
+                    'Access-Control-Allow-Credentials': 'true',
+                    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Vary': 'Origin',
+                })
+                response.end()
+                return
+            }
+
             const url = new URL(request.url, 'http://localhost')
             const path = url.pathname.replace(/\/+$/, '') || '/'
             const method = request.method
@@ -310,64 +422,84 @@ export function createServer({ dataFile = process.env.DATA_FILE || DEFAULT_DATA_
                 return
             }
 
+            if (method === 'GET' && path === '/api/health/ready') {
+                const { data, error } = await createSupabaseClient().from('tasks').select('id').limit(1)
+
+                if (error || !Array.isArray(data)) {
+                    throw new HttpError(503, 'O banco de dados não está pronto.')
+                }
+
+                sendJson(response, 200, { status: 'ok' }, origin)
+                return
+            }
+
             if (method === 'POST' && path === '/api/auth/register') {
                 const credentials = validateCredentials(await readJsonBody(request), true)
-                const salt = randomBytes(16).toString('hex')
-                const passwordHash = (await scryptAsync(credentials.password, salt, 64)).toString('hex')
-                const token = randomBytes(32).toString('base64url')
-                const user = await mutateStore((store) => {
-                    if (store.users.some((item) => item.email === credentials.email)) {
-                        throw new HttpError(409, 'Já existe uma conta com este e-mail.')
-                    }
-
-                    const createdUser = {
-                        id: randomUUID(),
-                        name: credentials.name,
-                        email: credentials.email,
-                        passwordHash,
-                        salt,
-                        createdAt: new Date().toISOString(),
-                    }
-
-                    store.users.push(createdUser)
-                    store.sessions.push({
-                        tokenHash: hashToken(token),
-                        userId: createdUser.id,
-                        expiresAt: Date.now() + TOKEN_TTL_MS,
-                    })
-
-                    return publicUser(createdUser)
+                const client = createSupabaseClient()
+                const emailRedirectTo = new URL('/auth/callback', getFrontendUrl()).toString()
+                const { data, error } = await client.auth.signUp({
+                    email: credentials.email,
+                    password: credentials.password,
+                    options: {
+                        data: { full_name: credentials.name },
+                        emailRedirectTo,
+                    },
                 })
 
-                sendJson(response, 201, { token, user }, origin)
+                if (error) {
+                    if (error.status === 429) {
+                        throw new HttpError(429, 'Muitas tentativas. Aguarde antes de tentar novamente.')
+                    }
+
+                    throw new HttpError(400, 'Não foi possível criar a conta com esses dados.')
+                }
+
+                if (!data.user) {
+                    throw new HttpError(502, 'O serviço de autenticação não retornou o usuário.')
+                }
+
+                if (!data.session) {
+                    sendJson(
+                        response,
+                        202,
+                        { needsEmailConfirmation: true, user: publicUser(data.user) },
+                        origin
+                    )
+                    return
+                }
+
+                sendJson(response, 201, sessionResponse(data.session, data.user), origin)
                 return
             }
 
             if (method === 'POST' && path === '/api/auth/login') {
                 const credentials = validateCredentials(await readJsonBody(request), false)
-                const store = await readStore()
-                const user = store.users.find((item) => item.email === credentials.email)
-                const validPassword = user
-                    ? await isValidPassword(credentials.password, user.passwordHash, user.salt)
-                    : false
+                const { data, error } = await createSupabaseClient().auth.signInWithPassword(credentials)
 
-                if (!validPassword) {
-                    throw new HttpError(401, 'E-mail ou senha incorretos.')
+                if (error || !data.session || !data.user) {
+                    throw new HttpError(401, 'E-mail ou senha incorretos, ou a conta ainda não foi confirmada.')
                 }
 
-                const token = randomBytes(32).toString('base64url')
-                await mutateStore((currentStore) => {
-                    currentStore.sessions = currentStore.sessions.filter(
-                        (session) => session.expiresAt > Date.now()
-                    )
-                    currentStore.sessions.push({
-                        tokenHash: hashToken(token),
-                        userId: user.id,
-                        expiresAt: Date.now() + TOKEN_TTL_MS,
-                    })
+                sendJson(response, 200, sessionResponse(data.session, data.user), origin)
+                return
+            }
+
+            if (method === 'POST' && path === '/api/auth/refresh') {
+                const { refreshToken } = await readJsonBody(request)
+
+                if (typeof refreshToken !== 'string' || refreshToken.length < 20) {
+                    throw new HttpError(401, 'Sua sessão expirou. Entre novamente.')
+                }
+
+                const { data, error } = await createSupabaseClient().auth.refreshSession({
+                    refresh_token: refreshToken,
                 })
 
-                sendJson(response, 200, { token, user: publicUser(user) }, origin)
+                if (error || !data.session || !data.user) {
+                    throw new HttpError(401, 'Sua sessão expirou. Entre novamente.')
+                }
+
+                sendJson(response, 200, sessionResponse(data.session, data.user), origin)
                 return
             }
 
@@ -378,117 +510,226 @@ export function createServer({ dataFile = process.env.DATA_FILE || DEFAULT_DATA_
             }
 
             if (path === '/api/auth/logout' && method === 'POST') {
-                const { session } = await requireUser(request)
-                await mutateStore((store) => {
-                    store.sessions = store.sessions.filter(
-                        (item) => item.tokenHash !== session.tokenHash
-                    )
+                const { token } = await requireUser(request)
+                const { url, anonKey } = getSupabaseConfig()
+                const logoutResponse = await fetchImpl(`${url}/auth/v1/logout`, {
+                    method: 'POST',
+                    headers: {
+                        apikey: anonKey,
+                        Authorization: `Bearer ${token}`,
+                    },
+                    signal: AbortSignal.timeout(10000),
                 })
-                response.writeHead(204, {
-                    'Access-Control-Allow-Origin': origin,
-                    'Access-Control-Allow-Credentials': 'true',
-                    'Cache-Control': 'no-store',
-                    'Vary': 'Origin',
+
+                if (!logoutResponse.ok) {
+                    throw new HttpError(503, 'Não foi possível encerrar a sessão. Tente novamente.')
+                }
+
+                sendNoContent(response, origin)
+                return
+            }
+
+            if (path === '/api/auth/password' && method === 'PUT') {
+                const { user } = await requireUser(request)
+                const input = await readJsonBody(request)
+                const currentPassword = typeof input.currentPassword === 'string'
+                    ? input.currentPassword
+                    : ''
+                const newPassword = typeof input.newPassword === 'string'
+                    ? input.newPassword
+                    : ''
+
+                if (newPassword.length < 8 || newPassword.length > 128) {
+                    throw new HttpError(400, 'A nova senha deve ter entre 8 e 128 caracteres.')
+                }
+
+                if (currentPassword === newPassword) {
+                    throw new HttpError(400, 'A nova senha deve ser diferente da senha atual.')
+                }
+
+                const client = createSupabaseClient()
+                const { data: loginData, error: loginError } = await client.auth.signInWithPassword({
+                    email: user.email,
+                    password: currentPassword,
                 })
-                response.end()
+
+                if (loginError || !loginData.session) {
+                    throw new HttpError(401, 'A senha atual está incorreta.')
+                }
+
+                const { error: updateError } = await client.auth.updateUser({
+                    password: newPassword,
+                })
+
+                if (updateError) {
+                    throw new HttpError(400, 'Não foi possível atualizar a senha.')
+                }
+
+                sendNoContent(response, origin)
+                return
+            }
+
+            if (path === '/api/auth/password/reset' && method === 'POST') {
+                const input = await readJsonBody(request)
+                const email = typeof input.email === 'string'
+                    ? input.email.trim().toLowerCase()
+                    : ''
+
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+                    throw new HttpError(400, 'Digite um e-mail válido.')
+                }
+
+                const redirectTo = new URL('/auth/recovery', getFrontendUrl()).toString()
+                const { error } = await createSupabaseClient().auth.resetPasswordForEmail(
+                    email,
+                    { redirectTo }
+                )
+
+                if (error?.status === 429) {
+                    throw new HttpError(429, 'Muitas tentativas. Aguarde antes de tentar novamente.')
+                }
+                if (error) {
+                    throw new HttpError(503, 'Não foi possível enviar o e-mail de recuperação.')
+                }
+
+                sendJson(response, 200, { status: 'ok' }, origin)
+                return
+            }
+
+            if (path === '/api/auth/password/recovery' && method === 'PUT') {
+                const { client, token } = await requireUser(request)
+                const input = await readJsonBody(request)
+                const newPassword = typeof input.newPassword === 'string'
+                    ? input.newPassword
+                    : ''
+                const refreshToken = typeof input.refreshToken === 'string'
+                    ? input.refreshToken
+                    : ''
+
+                if (newPassword.length < 8 || newPassword.length > 128) {
+                    throw new HttpError(400, 'A nova senha deve ter entre 8 e 128 caracteres.')
+                }
+                if (refreshToken.length < 20) {
+                    throw new HttpError(401, 'O link de recuperação expirou. Solicite outro.')
+                }
+
+                const { error: sessionError } = await client.auth.setSession({
+                    access_token: token,
+                    refresh_token: refreshToken,
+                })
+
+                if (sessionError) {
+                    throw new HttpError(401, 'O link de recuperação expirou. Solicite outro.')
+                }
+
+                const { error } = await client.auth.updateUser({ password: newPassword })
+                if (error) {
+                    throw new HttpError(400, 'Não foi possível atualizar a senha.')
+                }
+
+                sendNoContent(response, origin)
                 return
             }
 
             if (path === '/api/tasks' || path.startsWith('/api/tasks/')) {
-                const { user, store } = await requireUser(request)
+                const { client, user } = await requireUser(request)
 
                 if (path === '/api/tasks' && method === 'GET') {
-                    sendJson(
-                        response,
-                        200,
-                        store.tasks.filter((task) => task.userId === user.id),
-                        origin
-                    )
+                    const { data, error } = await client
+                        .from('tasks')
+                        .select('*')
+                        .eq('user_id', user.id)
+                        .order('created_at', { ascending: false })
+
+                    if (error) throw error
+
+                    sendJson(response, 200, data.map(mapTask), origin)
                     return
                 }
 
                 if (path === '/api/tasks' && method === 'POST') {
-                    const input = await readJsonBody(request)
-                    const validatedTask = validateTask(input)
-                    const task = await mutateStore((store) => {
-                        const createdTask = {
-                            ...validatedTask,
-                            id: randomUUID(),
-                            userId: user.id,
-                            completedAt: validatedTask.status === 'completed'
+                    const validatedTask = validateTask(await readJsonBody(request))
+                    const { data, error } = await client
+                        .from('tasks')
+                        .insert({
+                            ...databaseTask(validatedTask),
+                            user_id: user.id,
+                            completed_at: validatedTask.status === 'completed'
                                 ? new Date().toISOString()
                                 : null,
-                            createdAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
-                        }
+                        })
+                        .select('*')
+                        .single()
 
-                        store.tasks.push(createdTask)
-                        return createdTask
-                    })
+                    if (error) throw error
 
-                    sendJson(response, 201, task, origin)
+                    sendJson(response, 201, mapTask(data), origin)
                     return
                 }
 
-                const taskId = path.slice('/api/tasks/'.length)
+                let taskId
+                try {
+                    taskId = decodeURIComponent(path.slice('/api/tasks/'.length))
+                } catch {
+                    throw new HttpError(404, 'Tarefa não encontrada.')
+                }
 
-                if (!taskId || taskId.includes('/')) {
-                    throw new HttpError(404, 'Rota não encontrada.')
+                if (!UUID_PATTERN.test(taskId)) {
+                    throw new HttpError(404, 'Tarefa não encontrada.')
                 }
 
                 if (method === 'PUT') {
-                    const input = await readJsonBody(request)
-                    const updatedTask = await mutateStore((store) => {
-                        const task = store.tasks.find(
-                            (item) => item.id === taskId && item.userId === user.id
-                        )
+                    const { data: currentRow, error: readError } = await client
+                        .from('tasks')
+                        .select('*')
+                        .eq('id', taskId)
+                        .eq('user_id', user.id)
+                        .maybeSingle()
 
-                        if (!task) {
-                            throw new HttpError(404, 'Tarefa não encontrada.')
-                        }
+                    if (readError) throw readError
+                    if (!currentRow) throw new HttpError(404, 'Tarefa não encontrada.')
 
-                        const validatedTask = validateTask(input, task)
-                        const previousStatus = task.status
-                        Object.assign(task, validatedTask, {
-                            updatedAt: new Date().toISOString(),
-                        })
+                    const currentTask = mapTask(currentRow)
+                    const validatedTask = validateTask(await readJsonBody(request), currentTask)
+                    const payload = databaseTask(validatedTask)
 
-                        if (task.status === 'completed' && previousStatus !== 'completed') {
-                            task.completedAt = task.updatedAt
-                        } else if (task.status !== 'completed') {
-                            task.completedAt = null
-                        }
+                    if ('status' in validatedTask) {
+                        payload.completed_at =
+                            validatedTask.status === 'completed'
+                                ? currentTask.status === 'completed'
+                                    ? currentTask.completedAt
+                                    : new Date().toISOString()
+                                : null
+                    }
 
-                        return task
-                    })
+                    const { data, error } = await client
+                        .from('tasks')
+                        .update(payload)
+                        .eq('id', taskId)
+                        .eq('user_id', user.id)
+                        .select('*')
+                        .maybeSingle()
 
-                    sendJson(response, 200, updatedTask, origin)
+                    if (error) throw error
+                    if (!data) throw new HttpError(404, 'Tarefa não encontrada.')
+
+                    sendJson(response, 200, mapTask(data), origin)
                     return
                 }
 
                 if (method === 'DELETE') {
-                    const deleted = await mutateStore((store) => {
-                        const index = store.tasks.findIndex(
-                            (item) => item.id === taskId && item.userId === user.id
-                        )
+                    const { data, error } = await client
+                        .from('tasks')
+                        .delete()
+                        .eq('id', taskId)
+                        .eq('user_id', user.id)
+                        .select('id')
+                        .maybeSingle()
 
-                        if (index === -1) {
-                            throw new HttpError(404, 'Tarefa não encontrada.')
-                        }
+                    if (error) throw error
+                    if (!data) throw new HttpError(404, 'Tarefa não encontrada.')
 
-                        store.tasks.splice(index, 1)
-                        return true
-                    })
-
-                    if (deleted) {
-                        response.writeHead(204, {
-                            'Access-Control-Allow-Origin': origin,
-                            'Access-Control-Allow-Credentials': 'true',
-                            'Cache-Control': 'no-store',
-                            'Vary': 'Origin',
-                        })
-                        response.end()
-                    }
+                    sendNoContent(response, origin)
                     return
                 }
             }
@@ -497,14 +738,26 @@ export function createServer({ dataFile = process.env.DATA_FILE || DEFAULT_DATA_
         } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
 
-            if (status >= 500) {
-                console.error('Erro ao processar requisição:', error)
+            if (status >= 500 && !(error instanceof HttpError)) {
+                console.error('Erro ao processar requisição:', {
+                    name: error.name,
+                    code: error.code,
+                    status: error.status,
+                })
             }
 
             sendJson(
                 response,
                 status,
-                { error: { message: status === 500 ? 'Erro interno do servidor.' : error.message } },
+                {
+                    error: {
+                        message: status >= 500
+                            ? error instanceof HttpError
+                                ? error.message
+                                : 'Erro interno do servidor.'
+                            : error.message,
+                    },
+                },
                 origin
             )
         }

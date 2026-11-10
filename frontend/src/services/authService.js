@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { AUTH_REFRESH_TOKEN_KEY, apiRequest } from './api'
 
 export const authService = {
     register(userData) {
@@ -21,5 +21,29 @@ export const authService = {
 
     logout() {
         return apiRequest('/auth/logout', { method: 'POST' })
+    },
+
+    updatePassword({ currentPassword, newPassword }) {
+        return apiRequest('/auth/password', {
+            method: 'PUT',
+            body: JSON.stringify({ currentPassword, newPassword }),
+        })
+    },
+
+    resetPassword(email) {
+        return apiRequest('/auth/password/reset', {
+            method: 'POST',
+            body: JSON.stringify({ email }),
+        })
+    },
+
+    completePasswordRecovery(newPassword) {
+        return apiRequest('/auth/password/recovery', {
+            method: 'PUT',
+            body: JSON.stringify({
+                newPassword,
+                refreshToken: localStorage.getItem(AUTH_REFRESH_TOKEN_KEY),
+            }),
+        })
     },
 }

@@ -1,15 +1,12 @@
 
 import {
-    createContext,
     useCallback,
-    useContext,
     useEffect,
     useState,
 } from 'react'
 
 import { taskService } from '../services/taskService'
-
-const TasksContext = createContext(null)
+import { TasksContext } from './tasks-context'
 
 export function TasksProvider({ children }) {
     const [tasks, setTasks] = useState([])
@@ -31,8 +28,28 @@ export function TasksProvider({ children }) {
     }, [])
 
     useEffect(() => {
-        loadTasks()
-    }, [loadTasks])
+        let isMounted = true
+
+        async function initializeTasks() {
+            try {
+                const data = await taskService.getAll()
+                if (isMounted) {
+                    setTasks(data)
+                    setError(null)
+                }
+            } catch (err) {
+                if (isMounted) setError(err.message)
+            } finally {
+                if (isMounted) setLoading(false)
+            }
+        }
+
+        initializeTasks()
+
+        return () => {
+            isMounted = false
+        }
+    }, [])
 
     async function addTask(taskData) {
         setError(null)
@@ -106,16 +123,4 @@ export function TasksProvider({ children }) {
             {children}
         </TasksContext.Provider>
     )
-}
-
-export function useTasks() {
-    const context = useContext(TasksContext)
-
-    if (!context) {
-        throw new Error(
-            'useTasks deve ser utilizado dentro de TasksProvider.'
-        )
-    }
-
-    return context
 }

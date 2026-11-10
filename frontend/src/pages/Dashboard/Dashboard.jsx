@@ -9,7 +9,7 @@ import {
 import PriorityChart from '../../components/dashboard/PriorityChart'
 import TodayTasks from '../../components/dashboard/TodayTasks'
 import SummaryCard from '../../components/dashboard/SummaryCard'
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
 
 function Dashboard() {
     const { tasks } = useTasks()

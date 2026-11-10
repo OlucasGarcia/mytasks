@@ -10,7 +10,7 @@ import {
 } from 'recharts'
 
 import { useEffect, useState } from 'react'
-import { useTheme } from '../../contexts/ThemeContext'
+import { useTheme } from '../../contexts/useTheme'
 
 function ProductivityChart({ tasks }) {
 

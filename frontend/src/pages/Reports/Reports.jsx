@@ -6,7 +6,7 @@ import {
     ChartNoAxesColumnIncreasing,
 } from 'lucide-react'
 
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
 import SummaryCard from '../../components/dashboard/SummaryCard'
 import TaskStatusChart from '../../components/reports/TaskStatusChart'
 import ProductivityChart from '../../components/reports/ProductivityChart'

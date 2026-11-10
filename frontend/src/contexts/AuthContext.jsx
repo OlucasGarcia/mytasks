@@ -3,48 +3,79 @@ import {
     useEffect,
     useState,
 } from 'react'
-import { AUTH_TOKEN_KEY } from '../services/api'
+import {
+    AUTH_TOKEN_KEY,
+    clearAuthSession,
+    saveAuthSession,
+} from '../services/api'
 import { authService } from '../services/authService'
 import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null)
     const [isReady, setIsReady] = useState(
-        () => !localStorage.getItem(AUTH_TOKEN_KEY)
+        () => !localStorage.getItem(AUTH_TOKEN_KEY) && !window.location.hash
     )
     const [error, setError] = useState('')
+    const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
 
     const clearError = useCallback(() => setError(''), [])
 
     useEffect(() => {
         let isMounted = true
-        const token = localStorage.getItem(AUTH_TOKEN_KEY)
 
-        if (!token) {
-            return () => {
-                isMounted = false
+        async function initializeSession() {
+            const callbackParams = new URLSearchParams(window.location.hash.slice(1))
+            const callbackToken = callbackParams.get('access_token')
+            const callbackRefreshToken = callbackParams.get('refresh_token')
+            const callbackError = callbackParams.get('error_description')
+
+            if (callbackParams.get('type') === 'recovery') {
+                setIsPasswordRecovery(true)
             }
-        }
 
-        authService.getCurrentUser()
-            .then(({ user: currentUser }) => {
-                if (isMounted) {
-                    setUser(currentUser)
-                }
-            })
-            .catch((requestError) => {
+            if (callbackToken && callbackRefreshToken) {
+                saveAuthSession({
+                    token: callbackToken,
+                    refreshToken: callbackRefreshToken,
+                    expiresAt: Number(callbackParams.get('expires_at')) || undefined,
+                })
+                window.history.replaceState(
+                    null,
+                    document.title,
+                    `${window.location.pathname}${window.location.search}`
+                )
+            } else if (callbackError) {
+                setError(callbackError)
+                window.history.replaceState(
+                    null,
+                    document.title,
+                    `${window.location.pathname}${window.location.search}`
+                )
+            }
+
+            if (!localStorage.getItem(AUTH_TOKEN_KEY)) return
+
+            try {
+                const { user: currentUser } = await authService.getCurrentUser()
+                if (isMounted) setUser(currentUser)
+            } catch (requestError) {
                 if (!isMounted) return
 
                 if (requestError.status === 401) {
-                    localStorage.removeItem(AUTH_TOKEN_KEY)
+                    clearAuthSession()
                 } else {
                     setError(requestError.message)
                 }
+            }
+        }
+
+        initializeSession()
+            .catch((requestError) => {
+                if (isMounted) setError(requestError.message)
             })
             .finally(() => {
-                if (isMounted) {
-                    setIsReady(true)
-                }
+                if (isMounted) setIsReady(true)
             })
 
         return () => {
@@ -57,8 +88,9 @@ export function AuthProvider({ children }) {
 
         try {
             const result = await request()
-            localStorage.setItem(AUTH_TOKEN_KEY, result.token)
+            saveAuthSession(result)
             setUser(result.user)
+            setIsPasswordRecovery(false)
             return result.user
         } catch (requestError) {
             setError(requestError.message)
@@ -71,10 +103,24 @@ export function AuthProvider({ children }) {
         [authenticate]
     )
 
-    const register = useCallback(
-        (userData) => authenticate(() => authService.register(userData)),
-        [authenticate]
-    )
+    const register = useCallback(async (userData) => {
+        setError('')
+
+        try {
+            const result = await authService.register(userData)
+
+            if (result.token) {
+                saveAuthSession(result)
+                setUser(result.user)
+                setIsPasswordRecovery(false)
+            }
+
+            return result
+        } catch (requestError) {
+            setError(requestError.message)
+            throw requestError
+        }
+    }, [])
 
     const logout = useCallback(async () => {
         setError('')
@@ -84,14 +130,24 @@ export function AuthProvider({ children }) {
         } catch (requestError) {
             setError(requestError.message)
         } finally {
-            localStorage.removeItem(AUTH_TOKEN_KEY)
+            clearAuthSession()
             setUser(null)
+            setIsPasswordRecovery(false)
         }
     }, [])
 
     return (
         <AuthContext.Provider
-            value={{ user, isReady, error, clearError, login, register, logout }}
+            value={{
+                user,
+                isReady,
+                error,
+                isPasswordRecovery,
+                clearError,
+                login,
+                register,
+                logout,
+            }}
         >
             {children}
         </AuthContext.Provider>
