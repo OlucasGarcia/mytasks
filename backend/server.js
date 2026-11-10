@@ -33,16 +33,14 @@ function publicUser(user) {
 }
 
 function getAllowedOrigins() {
-    const configuredOrigins = process.env.CORS_ORIGIN ||
-        'http://localhost:5173,http://127.0.0.1:5173'
+    const localOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']
+    const configuredOrigins = process.env.CORS_ORIGIN || ''
     const origins = configuredOrigins
         .split(',')
         .map((origin) => origin.trim())
         .filter(Boolean)
 
-    return origins.length
-        ? origins
-        : ['http://localhost:5173', 'http://127.0.0.1:5173']
+    return [...new Set([...localOrigins, ...origins])]
 }
 
 function sendJson(response, status, value, origin) {

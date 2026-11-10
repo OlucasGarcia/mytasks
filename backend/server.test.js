@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
+import vercelHandler from './api/[...path].js'
 import { createServer } from './server.js'
 
 let server
@@ -56,6 +58,13 @@ test('registra, autentica e encerra uma sessão', async () => {
     assert.equal(registration.body.user.email, 'ana@example.com')
     assert.ok(registration.body.token)
 
+    const login = await request('/api/auth/login', {
+        method: 'POST',
+        body: { email: 'ana@example.com', password: 'senha-segura-123' },
+    })
+    assert.equal(login.response.status, 200)
+    assert.ok(login.body.token)
+
     const profile = await request('/api/auth/me', { token: registration.body.token })
     assert.equal(profile.response.status, 200)
     assert.equal(profile.body.user.name, 'Ana Silva')
@@ -107,6 +116,11 @@ test('cria, atualiza e exclui tarefas sem permitir acesso entre usuários', asyn
     assert.equal(created.response.status, 201)
     assert.equal(created.body.title, 'Revisar estoque')
 
+    const secondUserTasks = await request('/api/tasks', {
+        token: secondRegistration.body.token,
+    })
+    assert.deepEqual(secondUserTasks.body, [])
+
     const update = await request(`/api/tasks/${created.body.id}`, {
         method: 'PUT',
         token,
@@ -149,4 +163,93 @@ test('valida os campos das tarefas', async () => {
         body: { title: 'Tarefa', date: '2026-02-31' },
     })
     assert.equal(invalidDate.response.status, 400)
+})
+
+test('adapta as requisições HTTP da Vercel e responde health e preflight', async () => {
+    const adapterServer = createHttpServer(vercelHandler)
+    await new Promise((resolve) => adapterServer.listen(0, '127.0.0.1', resolve))
+    const adapterUrl = `http://127.0.0.1:${adapterServer.address().port}`
+
+    try {
+        const health = await fetch(`${adapterUrl}/api/health`, {
+            headers: { Origin: 'http://localhost:5173' },
+        })
+        assert.equal(health.status, 200)
+        assert.deepEqual(await health.json(), { status: 'ok' })
+        assert.equal(
+            health.headers.get('access-control-allow-origin'),
+            'http://localhost:5173'
+        )
+
+        const preflight = await fetch(`${adapterUrl}/api/tasks`, {
+            method: 'OPTIONS',
+            headers: {
+                Origin: 'http://localhost:5173',
+                'Access-Control-Request-Method': 'POST',
+                'Access-Control-Request-Headers': 'authorization,content-type',
+            },
+        })
+        assert.equal(preflight.status, 204)
+        assert.match(
+            preflight.headers.get('access-control-allow-methods'),
+            /GET, POST, PUT, DELETE, OPTIONS/
+        )
+        assert.match(
+            preflight.headers.get('access-control-allow-headers'),
+            /Authorization, Content-Type/
+        )
+    } finally {
+        await new Promise((resolve, reject) => {
+            adapterServer.close((error) => error ? reject(error) : resolve())
+        })
+    }
+})
+
+test('restringe CORS às origens configuradas sem remover origens locais', async () => {
+    const previousOrigin = process.env.CORS_ORIGIN
+    process.env.CORS_ORIGIN = 'https://frontend.example.test'
+
+    try {
+        const configuredOrigin = await fetch(`${baseUrl}/api/health`, {
+            headers: { Origin: 'https://frontend.example.test' },
+        })
+        assert.equal(configuredOrigin.status, 200)
+        assert.equal(
+            configuredOrigin.headers.get('access-control-allow-origin'),
+            'https://frontend.example.test'
+        )
+
+        const localOrigin = await fetch(`${baseUrl}/api/health`, {
+            headers: { Origin: 'http://localhost:5173' },
+        })
+        assert.equal(localOrigin.status, 200)
+        assert.equal(
+            localOrigin.headers.get('access-control-allow-origin'),
+            'http://localhost:5173'
+        )
+
+        const unlistedOrigin = await fetch(`${baseUrl}/api/health`, {
+            headers: { Origin: 'https://unlisted.example.test' },
+        })
+        assert.equal(unlistedOrigin.status, 403)
+    } finally {
+        if (previousOrigin === undefined) {
+            delete process.env.CORS_ORIGIN
+        } else {
+            process.env.CORS_ORIGIN = previousOrigin
+        }
+    }
+})
+
+test('retorna erros JSON para corpo inválido e rota inexistente', async () => {
+    const invalidJson = await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{',
+    })
+    assert.equal(invalidJson.status, 400)
+    assert.ok((await invalidJson.json()).error.message)
+
+    const missingRoute = await request('/api/not-found')
+    assert.equal(missingRoute.response.status, 404)
 })
