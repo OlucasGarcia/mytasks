@@ -1,6 +1,7 @@
 
 import { useState } from 'react'
 import { Eye, EyeOff, LockKeyhole } from 'lucide-react'
+import { useAuth } from '../../contexts/useAuth'
 
 const initialForm = {
     currentPassword: '',
@@ -12,6 +13,9 @@ function SecuritySettings() {
     const [formData, setFormData] = useState(initialForm)
     const [showPasswords, setShowPasswords] = useState(false)
     const [error, setError] = useState('')
+    const [success, setSuccess] = useState('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const { user, login, updatePassword } = useAuth()
 
     function handleChange(event) {
         const { name, value } = event.target
@@ -22,9 +26,10 @@ function SecuritySettings() {
         }))
 
         setError('')
+        setSuccess('')
     }
 
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault()
 
         if (
@@ -51,9 +56,23 @@ function SecuritySettings() {
             return
         }
 
-        setError(
-            'A alteração de senha estará disponível após a integração com o servidor.'
-        )
+        setIsSubmitting(true)
+        setError('')
+        setSuccess('')
+
+        try {
+            await login({
+                email: user.email,
+                password: formData.currentPassword,
+            })
+            await updatePassword(formData.newPassword)
+            setFormData(initialForm)
+            setSuccess('Sua senha foi alterada.')
+        } catch (requestError) {
+            setError(requestError.message)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     const fields = [
@@ -135,18 +154,20 @@ function SecuritySettings() {
                         {error}
                     </p>
                 )}
+                {success && (
+                    <p role="status" className="text-sm text-emerald-600 dark:text-emerald-400">
+                        {success}
+                    </p>
+                )}
 
                 <div className="flex flex-wrap items-center gap-4">
                     <button
                         type="submit"
+                        disabled={isSubmitting}
                         className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
                     >
-                        Alterar senha
+                        {isSubmitting ? 'Alterando...' : 'Alterar senha'}
                     </button>
-
-                    <p className="text-xs text-text-secondary">
-                        Funcionalidade aguardando integração com o back-end.
-                    </p>
                 </div>
             </form>
         </section>

@@ -1,37 +1,65 @@
-
 import {
-    createContext,
     useCallback,
-    useContext,
     useEffect,
+    useRef,
     useState,
 } from 'react'
 
+import { useAuth } from './useAuth'
+import { TasksContext } from './tasks-context'
 import { taskService } from '../services/taskService'
 
-const TasksContext = createContext(null)
-
 export function TasksProvider({ children }) {
+    const { user } = useAuth()
+    const userId = user?.id ?? null
     const [tasks, setTasks] = useState([])
-    const [loading, setLoading] = useState(true)
+    const [tasksUserId, setTasksUserId] = useState(null)
+    const [loading, setLoading] = useState(Boolean(userId))
     const [error, setError] = useState(null)
+    const requestId = useRef(0)
 
     const loadTasks = useCallback(async () => {
+        if (!userId) return []
+
+        const currentRequestId = requestId.current + 1
+        requestId.current = currentRequestId
         setLoading(true)
         setError(null)
 
         try {
             const data = await taskService.getAll()
-            setTasks(data)
-        } catch (err) {
-            setError(err.message)
+
+            if (requestId.current === currentRequestId) {
+                setTasks(data)
+                setTasksUserId(userId)
+            }
+
+            return data
+        } catch (requestError) {
+            if (requestId.current === currentRequestId) {
+                setError(requestError.message)
+                setTasks([])
+                setTasksUserId(userId)
+            }
+
+            return []
         } finally {
-            setLoading(false)
+            if (requestId.current === currentRequestId) {
+                setLoading(false)
+            }
         }
-    }, [])
+    }, [userId])
 
     useEffect(() => {
-        loadTasks()
+        let isActive = true
+
+        queueMicrotask(() => {
+            if (isActive) void loadTasks()
+        })
+
+        return () => {
+            isActive = false
+        }
     }, [loadTasks])
 
     async function addTask(taskData) {
@@ -39,13 +67,12 @@ export function TasksProvider({ children }) {
 
         try {
             const newTask = await taskService.create(taskData)
-
             setTasks((previous) => [...previous, newTask])
-
+            setTasksUserId(userId)
             return newTask
-        } catch (err) {
-            setError(err.message)
-            throw err
+        } catch (requestError) {
+            setError(requestError.message)
+            throw requestError
         }
     }
 
@@ -53,21 +80,16 @@ export function TasksProvider({ children }) {
         setError(null)
 
         try {
-            const updatedTask = await taskService.update(
-                taskId,
-                updatedData
-            )
-
+            const updatedTask = await taskService.update(taskId, updatedData)
             setTasks((previous) =>
                 previous.map((task) =>
                     task.id === taskId ? updatedTask : task
                 )
             )
-
             return updatedTask
-        } catch (err) {
-            setError(err.message)
-            throw err
+        } catch (requestError) {
+            setError(requestError.message)
+            throw requestError
         }
     }
 
@@ -76,13 +98,12 @@ export function TasksProvider({ children }) {
 
         try {
             await taskService.remove(taskId)
-
             setTasks((previous) =>
                 previous.filter((task) => task.id !== taskId)
             )
-        } catch (err) {
-            setError(err.message)
-            throw err
+        } catch (requestError) {
+            setError(requestError.message)
+            throw requestError
         }
     }
 
@@ -93,7 +114,7 @@ export function TasksProvider({ children }) {
     return (
         <TasksContext.Provider
             value={{
-                tasks,
+                tasks: tasksUserId === userId ? tasks : [],
                 loading,
                 error,
                 loadTasks,
@@ -106,16 +127,4 @@ export function TasksProvider({ children }) {
             {children}
         </TasksContext.Provider>
     )
-}
-
-export function useTasks() {
-    const context = useContext(TasksContext)
-
-    if (!context) {
-        throw new Error(
-            'useTasks deve ser utilizado dentro de TasksProvider.'
-        )
-    }
-
-    return context
 }

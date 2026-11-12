@@ -1,25 +1,60 @@
-import { apiRequest } from './api'
+import { getSupabaseClient } from '../lib/supabase'
 
 export const authService = {
-    register(userData) {
-        return apiRequest('/auth/register', {
-            method: 'POST',
-            body: JSON.stringify(userData),
+    async register({ name, email, password }) {
+        const { data, error } = await getSupabaseClient().auth.signUp({
+            email,
+            password,
+            options: {
+                data: { full_name: name },
+                emailRedirectTo: `${window.location.origin}/dashboard`,
+            },
         })
+
+        if (error) throw error
+
+        return {
+            user: data.user,
+            session: data.session,
+            needsEmailConfirmation: !data.session,
+        }
     },
 
-    login(credentials) {
-        return apiRequest('/auth/login', {
-            method: 'POST',
-            body: JSON.stringify(credentials),
+    async login({ email, password }) {
+        const { data, error } = await getSupabaseClient().auth.signInWithPassword({
+            email,
+            password,
         })
+
+        if (error) throw error
+
+        return data
     },
 
-    getCurrentUser() {
-        return apiRequest('/auth/me')
+    async resetPassword(email) {
+        const { error } = await getSupabaseClient().auth.resetPasswordForEmail(
+            email,
+            {
+                redirectTo: `${window.location.origin}/login?updatePassword=true`,
+            }
+        )
+
+        if (error) throw error
     },
 
-    logout() {
-        return apiRequest('/auth/logout', { method: 'POST' })
+    async updatePassword(password) {
+        const { data, error } = await getSupabaseClient().auth.updateUser({
+            password,
+        })
+
+        if (error) throw error
+
+        return data.user
+    },
+
+    async logout() {
+        const { error } = await getSupabaseClient().auth.signOut()
+
+        if (error) throw error
     },
 }

@@ -9,10 +9,24 @@ import {
 import PriorityChart from '../../components/dashboard/PriorityChart'
 import TodayTasks from '../../components/dashboard/TodayTasks'
 import SummaryCard from '../../components/dashboard/SummaryCard'
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
+import { useAuth } from '../../contexts/useAuth'
 
 function Dashboard() {
-    const { tasks } = useTasks()
+    const { tasks, loading, error } = useTasks()
+    const { user } = useAuth()
+
+    if (loading) {
+        return (
+            <div
+                role="status"
+                className="flex min-h-64 items-center justify-center gap-3 text-text-secondary"
+            >
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                <span className="text-sm">Carregando seu resumo...</span>
+            </div>
+        )
+    }
 
     const totalTasks = tasks.length
 
@@ -38,13 +52,22 @@ function Dashboard() {
         <section>
             <div className="mb-6">
                 <h1 className="text-3xl font-semibold text-text-primary">
-                    Olá, Lucas! 👋
+                    Olá, {user?.name || 'por aqui'}! 👋
                 </h1>
 
                 <p className="mt-1 text-sm text-text-secondary">
                     Aqui está um resumo das suas tarefas de hoje.
                 </p>
             </div>
+
+            {error && (
+                <p
+                    role="alert"
+                    className="mb-5 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+                >
+                    {error}
+                </p>
+            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <SummaryCard

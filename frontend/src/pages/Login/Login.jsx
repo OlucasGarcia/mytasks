@@ -1,6 +1,6 @@
 
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react'
 import { useAuth } from '../../contexts/useAuth'
 
@@ -11,10 +11,23 @@ function Login() {
     })
 
     const [showPassword, setShowPassword] = useState(false)
+    const [newPassword, setNewPassword] = useState('')
+    const [mode, setMode] = useState('login')
     const [formError, setFormError] = useState('')
+    const [successMessage, setSuccessMessage] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const { login, error: authError, clearError } = useAuth()
+    const {
+        login,
+        resetPassword,
+        updatePassword,
+        isPasswordRecovery,
+        error: authError,
+        clearError,
+    } = useAuth()
     const navigate = useNavigate()
+    const [searchParams] = useSearchParams()
+    const isUpdatingPassword =
+        isPasswordRecovery || searchParams.get('updatePassword') === 'true'
 
     function handleChange(event) {
         const { name, value } = event.target
@@ -25,31 +38,56 @@ function Login() {
         }))
 
         setFormError('')
+        setSuccessMessage('')
         clearError()
     }
 
     async function handleSubmit(event) {
         event.preventDefault()
 
-        if (!formData.email.trim() || !formData.password) {
+        if (isUpdatingPassword) {
+            if (newPassword.length < 8) {
+                setFormError('A senha deve ter pelo menos 8 caracteres.')
+                return
+            }
+        } else if (!formData.email.trim()) {
             setFormError('Preencha todos os campos.')
             return
         }
 
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        if (
+            !isUpdatingPassword &&
+            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)
+        ) {
             setFormError('Digite um e-mail válido.')
+            return
+        }
+
+        if (!isUpdatingPassword && mode === 'login' && !formData.password) {
+            setFormError('Preencha todos os campos.')
             return
         }
 
         setIsSubmitting(true)
         setFormError('')
+        setSuccessMessage('')
 
         try {
-            await login({
-                email: formData.email.trim(),
-                password: formData.password,
-            })
-            navigate('/dashboard', { replace: true })
+            if (isUpdatingPassword) {
+                await updatePassword(newPassword)
+                navigate('/dashboard', { replace: true })
+            } else if (mode === 'reset') {
+                await resetPassword(formData.email.trim())
+                setSuccessMessage(
+                    'Se houver uma conta para este e-mail, enviaremos um link para redefinir sua senha.'
+                )
+            } else {
+                await login({
+                    email: formData.email.trim(),
+                    password: formData.password,
+                })
+                navigate('/dashboard', { replace: true })
+            }
         } catch (requestError) {
             setFormError(requestError.message)
         } finally {
@@ -76,14 +114,23 @@ function Login() {
 
                 <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm sm:p-8">
                     <h2 className="text-xl font-semibold text-text-primary">
-                        Bem-vindo de volta!
+                        {isUpdatingPassword
+                            ? 'Defina uma nova senha'
+                            : mode === 'reset'
+                                ? 'Recuperar senha'
+                                : 'Bem-vindo de volta!'}
                     </h2>
 
                     <p className="mt-1 text-sm text-text-secondary">
-                        Entre com suas credenciais para continuar.
+                        {isUpdatingPassword
+                            ? 'Escolha uma senha com pelo menos 8 caracteres.'
+                            : mode === 'reset'
+                                ? 'Informe seu e-mail para receber o link de recuperação.'
+                                : 'Entre com suas credenciais para continuar.'}
                     </p>
 
                     <form onSubmit={handleSubmit} className="mt-7 space-y-5">
+                        {!isUpdatingPassword && (
                         <div>
                             <label
                                 htmlFor="email"
@@ -110,7 +157,32 @@ function Login() {
                                 />
                             </div>
                         </div>
+                        )}
 
+                        {isUpdatingPassword ? (
+                            <div>
+                                <label
+                                    htmlFor="new-password"
+                                    className="mb-2 block text-sm font-medium text-text-primary"
+                                >
+                                    Nova senha
+                                </label>
+                                <input
+                                    id="new-password"
+                                    type="password"
+                                    value={newPassword}
+                                    onChange={(event) => {
+                                        setNewPassword(event.target.value)
+                                        setFormError('')
+                                        clearError()
+                                    }}
+                                    minLength={8}
+                                    autoComplete="new-password"
+                                    required
+                                    className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-text-primary outline-none focus:border-primary"
+                                />
+                            </div>
+                        ) : mode === 'login' ? (
                         <div>
                             <label
                                 htmlFor="password"
@@ -150,6 +222,7 @@ function Login() {
                                 </button>
                             </div>
                         </div>
+                        ) : null}
 
                         {(formError || authError) && (
                             <p
@@ -159,16 +232,59 @@ function Login() {
                                 {formError || authError}
                             </p>
                         )}
+                        {successMessage && (
+                            <p
+                                role="status"
+                                className="text-sm text-emerald-600 dark:text-emerald-400"
+                            >
+                                {successMessage}
+                            </p>
+                        )}
+
+                        {!isUpdatingPassword && mode === 'login' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMode('reset')
+                                    setFormError('')
+                                    setSuccessMessage('')
+                                }}
+                                className="text-sm font-medium text-primary hover:underline"
+                            >
+                                Esqueceu sua senha?
+                            </button>
+                        )}
+
+                        {!isUpdatingPassword && mode === 'reset' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMode('login')
+                                    setFormError('')
+                                    setSuccessMessage('')
+                                }}
+                                className="text-sm font-medium text-primary hover:underline"
+                            >
+                                Voltar ao login
+                            </button>
+                        )}
 
                         <button
                             type="submit"
                             disabled={isSubmitting}
                             className="w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            {isSubmitting ? 'Entrando...' : 'Entrar'}
+                            {isSubmitting
+                                ? 'Aguarde...'
+                                : isUpdatingPassword
+                                    ? 'Atualizar senha'
+                                    : mode === 'reset'
+                                        ? 'Enviar link de recuperação'
+                                        : 'Entrar'}
                         </button>
                     </form>
 
+                    {!isUpdatingPassword && mode === 'login' && (
                     <p className="mt-6 text-center text-sm text-text-secondary">
                         Ainda não possui uma conta?{' '}
                         <Link
@@ -178,6 +294,7 @@ function Login() {
                             Cadastre-se
                         </Link>
                     </p>
+                    )}
                 </div>
 
                 <p className="mt-6 text-center text-xs text-text-secondary">

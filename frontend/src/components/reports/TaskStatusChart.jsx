@@ -8,8 +8,6 @@ import {
     Legend,
 } from 'recharts'
 
-import { useTheme } from '../../contexts/ThemeContext'
-
 const statusConfig = [
     {
         key: 'pending',

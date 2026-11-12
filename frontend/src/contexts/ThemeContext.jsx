@@ -1,12 +1,9 @@
 
 import {
-    createContext,
-    useContext,
     useEffect,
     useState,
 } from 'react'
-
-const ThemeContext = createContext(null)
+import { ThemeContext } from './theme-context'
 
 const STORAGE_KEY = 'mytasks-theme'
 
@@ -55,16 +52,4 @@ export function ThemeProvider({ children }) {
             {children}
         </ThemeContext.Provider>
     )
-}
-
-export function useTheme() {
-    const context = useContext(ThemeContext)
-
-    if (context === null) {
-        throw new Error(
-            'useTheme deve ser utilizado dentro de ThemeProvider'
-        )
-    }
-
-    return context
 }

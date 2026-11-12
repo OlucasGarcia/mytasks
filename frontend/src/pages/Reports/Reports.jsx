@@ -4,15 +4,29 @@ import {
     CircleCheck,
     Clock3,
     ChartNoAxesColumnIncreasing,
+    Timer,
 } from 'lucide-react'
 
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
 import SummaryCard from '../../components/dashboard/SummaryCard'
 import TaskStatusChart from '../../components/reports/TaskStatusChart'
 import ProductivityChart from '../../components/reports/ProductivityChart'
+import CategoryChart from '../../components/reports/CategoryChart'
 
 function Reports() {
-    const { tasks } = useTasks()
+    const { tasks, loading, error } = useTasks()
+
+    if (loading) {
+        return (
+            <div
+                role="status"
+                className="flex min-h-64 items-center justify-center gap-3 text-text-secondary"
+            >
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                <span className="text-sm">Carregando relatórios...</span>
+            </div>
+        )
+    }
 
     const totalTasks = tasks.length
 
@@ -41,7 +55,16 @@ function Reports() {
                 </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {error && (
+                <p
+                    role="alert"
+                    className="mb-5 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+                >
+                    {error}
+                </p>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
                 <SummaryCard
                     title="Total de tarefas"
                     value={totalTasks}
@@ -67,6 +90,14 @@ function Reports() {
                 />
 
                 <SummaryCard
+                    title="Em andamento"
+                    value={tasks.filter((task) => task.status === 'in_progress').length}
+                    icon={Timer}
+                    iconColor="text-sky-600 dark:text-sky-400"
+                    iconBackground="bg-sky-100 dark:bg-sky-500/15"
+                />
+
+                <SummaryCard
                     title="Taxa de conclusão"
                     value={`${completionRate}%`}
                     icon={ChartNoAxesColumnIncreasing}
@@ -80,6 +111,9 @@ function Reports() {
             </div>
             <div className="mt-6">
                 <ProductivityChart tasks={tasks} />
+            </div>
+            <div className="mt-6">
+                <CategoryChart tasks={tasks} />
             </div>
         </section>
     )

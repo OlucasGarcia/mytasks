@@ -1,7 +1,7 @@
 
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useTasks } from '../../contexts/TasksContext'
+import { useTasks } from '../../contexts/useTasks'
 
 const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
